@@ -28,6 +28,17 @@ if (JavaVersion.current().isJava9Compatible()) {
         compileJava.options.release.set(8)
 }
 
+eclipse {
+  classpath {
+    file {
+      whenMerged { classpath ->
+        classpath.entries.removeAll { it.path == 'assets' }
+        classpath.entries += new org.gradle.plugins.ide.eclipse.model.SourceFolder(rootProject.file('assets').path, 'bin/main')
+      }
+    }
+  }
+}
+
 dependencies {
   implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
   implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
