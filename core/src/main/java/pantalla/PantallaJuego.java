@@ -12,6 +12,8 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
@@ -24,9 +26,13 @@ import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 import com.tetrisonline.game.TetrisGame;
 
+import online.ControladorJuego;
+import online.HiloCliente;
+
+import java.util.ArrayDeque;
 import java.util.Random;
 
-public class PantallaJuego extends ScreenAdapter {
+public class PantallaJuego extends ScreenAdapter implements ControladorJuego {
 
     private final TetrisGame juego;
 
@@ -46,6 +52,11 @@ public class PantallaJuego extends ScreenAdapter {
     private SpriteBatch batch;
     private BitmapFont fuente;
     private OrthographicCamera camara;
+    private Texture overlayKo;
+    private HiloCliente hiloCliente;
+    private final Object colaLock = new Object();
+    private final ArrayDeque<String> colaPiezasP1 = new ArrayDeque<String>();
+    private final ArrayDeque<String> colaPiezasP2 = new ArrayDeque<String>();
 
     private static final int COLUMNAS = 10;
     private static final int FILAS = 20;
@@ -55,9 +66,14 @@ public class PantallaJuego extends ScreenAdapter {
     private static final int X_TABLERO_1 = 80;
     private static final int X_TABLERO_2 = X_TABLERO_1 + COLUMNAS * TAM_BLOQUE + TABLERO_SEPARACION;
 
-    private final TableroTetris jugador1 = new TableroTetris("P1", X_TABLERO_1);
-    private final TableroTetris jugador2 = new TableroTetris("P2", X_TABLERO_2);
+    private final TableroTetris jugador1 = new TableroTetris("P1", X_TABLERO_1, colaPiezasP1);
+    private final TableroTetris jugador2 = new TableroTetris("P2", X_TABLERO_2, colaPiezasP2);
     private boolean partidaTerminada = false;
+    private float barraVentajaOffset = 0f;
+    private float barraVentajaSuave = 0f;
+    private float barraVentajaParpadeo = 0f;
+    private float temblorP1 = 0f;
+    private float temblorP2 = 0f;
 
     public PantallaJuego(TetrisGame juego) {
         this.juego = juego;
@@ -70,6 +86,7 @@ public class PantallaJuego extends ScreenAdapter {
         fuente = new BitmapFont();
         camara = new OrthographicCamera();
         camara.setToOrtho(false, 960, 480);
+        overlayKo = crearOverlayKo();
 
         if (juego.getMusica() != null && !juego.getMusica().isPlaying()) {
             juego.getMusica().play();
@@ -78,6 +95,10 @@ public class PantallaJuego extends ScreenAdapter {
         jugador1.reiniciarPartida();
         jugador2.reiniciarPartida();
         partidaTerminada = false;
+        hiloCliente = new HiloCliente(this);
+        hiloCliente.start();
+        hiloCliente.sendMessage("Conectado");
+        hiloCliente.sendMessage("hola estoy conectado papi");
     }
 
     @Override
@@ -86,6 +107,8 @@ public class PantallaJuego extends ScreenAdapter {
 
         jugador1.actualizar(delta);
         jugador2.actualizar(delta);
+        actualizarBarraVentaja(delta);
+        actualizarTemblor(delta);
 
         if (!partidaTerminada) {
             boolean p1Over = jugador1.isGameOver();
@@ -132,6 +155,7 @@ public class PantallaJuego extends ScreenAdapter {
 
         jugador1.dibujar(figura);
         jugador2.dibujar(figura);
+        dibujarBarraVentaja(figura);
 
         figura.end();
 
@@ -140,6 +164,47 @@ public class PantallaJuego extends ScreenAdapter {
         jugador1.dibujarUI(batch, fuente);
         jugador2.dibujarUI(batch, fuente);
         batch.end();
+    }
+
+    private void actualizarBarraVentaja(float delta) {
+        int ventaja = jugador1.getLineasEliminadas() - jugador2.getLineasEliminadas();
+        float target = Math.max(-80f, Math.min(80f, ventaja * 6f));
+        barraVentajaOffset = target;
+        float suavizado = Math.min(1f, delta * 6f);
+        barraVentajaSuave = barraVentajaSuave + (barraVentajaOffset - barraVentajaSuave) * suavizado;
+        barraVentajaParpadeo += delta;
+    }
+
+    private void actualizarTemblor(float delta) {
+        boolean p1Peligro = jugador1.estaEnPeligro();
+        boolean p2Peligro = jugador2.estaEnPeligro();
+
+        temblorP1 = p1Peligro ? temblorP1 + delta : 0f;
+        temblorP2 = p2Peligro ? temblorP2 + delta : 0f;
+
+        float offsetP1 = p1Peligro ? (float) Math.sin(temblorP1 * 40f) * 3f : 0f;
+        float offsetP2 = p2Peligro ? (float) Math.sin(temblorP2 * 40f) * 3f : 0f;
+        jugador1.setShakeOffsetX(offsetP1);
+        jugador2.setShakeOffsetX(offsetP2);
+    }
+
+
+    private void dibujarBarraVentaja(ShapeRenderer sr) {
+        float barWidth = 16f;
+        float barHeight = 360f;
+        float baseX = 960f - barWidth - 12f;
+        float x = baseX + barraVentajaSuave;
+        x = Math.max(12f, Math.min(960f - barWidth - 12f, x));
+        float y = 60f;
+        float alpha = 0.85f;
+        int ventaja = jugador1.getLineasEliminadas() - jugador2.getLineasEliminadas();
+        if (Math.abs(ventaja) > 10) {
+            alpha = 0.5f + 0.35f * (float) Math.sin(barraVentajaParpadeo * 8f);
+        }
+        sr.setColor(0.1f, 0.45f, 0.95f, alpha);
+        sr.rect(x, y, barWidth / 2f, barHeight);
+        sr.setColor(0.9f, 0.2f, 0.2f, alpha);
+        sr.rect(x + barWidth / 2f, y, barWidth / 2f, barHeight);
     }
 
     @Override
@@ -153,29 +218,104 @@ public class PantallaJuego extends ScreenAdapter {
         if (fuente != null) {
             fuente.dispose();
         }
+        if (overlayKo != null) {
+            overlayKo.dispose();
+        }
+    }
+
+    private Texture crearOverlayKo() {
+        Pixmap pixmap = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+        pixmap.setColor(1f, 0f, 0f, 1f);
+        pixmap.fill();
+        Texture tex = new Texture(pixmap);
+        pixmap.dispose();
+        return tex;
+    }
+
+    public void onStart() {
+        synchronized (colaLock) {
+            colaPiezasP1.clear();
+            colaPiezasP2.clear();
+        }
+    }
+
+    public void onNuevaPieza(String tipo) {
+        if (tipo == null || tipo.trim().isEmpty()) {
+            return;
+        }
+        synchronized (colaLock) {
+            colaPiezasP1.addLast(tipo.trim());
+            colaPiezasP2.addLast(tipo.trim());
+        }
+        jugador1.intentarTomarPieza();
+        jugador2.intentarTomarPieza();
+    }
+
+    private String obtenerSiguienteTipo(ArrayDeque<String> cola) {
+        synchronized (colaLock) {
+            return cola.pollFirst();
+        }
+    }
+
+    private int mapTipoToId(String tipo) {
+        switch (tipo) {
+            case "I":
+                return 0;
+            case "L":
+                return 1;
+            case "J":
+                return 2;
+            case "O":
+                return 3;
+            case "S":
+                return 4;
+            case "Z":
+                return 5;
+            case "T":
+                return 6;
+            default:
+                return -1;
+        }
+    }
+
+    private void enviarAccionPiezaColocada() {
+        if (hiloCliente != null) {
+            hiloCliente.sendMessage("LISTO");
+        }
     }
 
     private class TableroTetris {
         private final String nombre;
         private final int xTablero;
         private final int[][] tablero = new int[FILAS][COLUMNAS];
+        private final ArrayDeque<String> colaPiezas;
 
         private int[][] piezaActual;
         private int piezaColor;
         private int pivoteX;
         private int pivoteY;
+        private float shakeOffsetX = 0f;
 
         private float tiempoCaida = 0f;
         private float intervaloCaida = 0.5f;
 
         private int puntaje = 0;
-        private int lineasEliminadas = 0;
+        private int lineasTotales = 0;
+        private int nivel = 1;
+        private int velocidadCaida = 800;
         private boolean pausado = false;
         private boolean gameOver = false;
+        private boolean perdioPorBasura = false;
 
-        private TableroTetris(String nombre, int xTablero) {
+        private boolean mostrandoNivel = false;
+        private float tiempoMostrarNivel = 0f;
+        private int nivelActual = 1;
+        private final GlyphLayout layoutNivel = new GlyphLayout();
+
+        private TableroTetris(String nombre, int xTablero, ArrayDeque<String> colaPiezas) {
             this.nombre = nombre;
             this.xTablero = xTablero;
+            this.colaPiezas = colaPiezas;
         }
 
         private void reiniciarPartida() {
@@ -185,16 +325,32 @@ public class PantallaJuego extends ScreenAdapter {
                 }
             }
             puntaje = 0;
-            lineasEliminadas = 0;
+            lineasTotales = 0;
+            nivel = 1;
+            actualizarVelocidadCaida();
             pausado = false;
             gameOver = false;
-            intervaloCaida = 0.5f;
+            perdioPorBasura = false;
             tiempoCaida = 0f;
+            mostrandoNivel = false;
+            tiempoMostrarNivel = 0f;
+            nivelActual = nivel;
             generarPiezaNueva();
         }
 
         private void generarPiezaNueva() {
-            int id = random.nextInt(piezasBase.length);
+            String tipo = obtenerSiguienteTipo(colaPiezas);
+            if (tipo == null) {
+                piezaActual = null;
+                piezaColor = 0;
+                return;
+            }
+            int id = mapTipoToId(tipo);
+            if (id < 0 || id >= piezasBase.length) {
+                piezaActual = null;
+                piezaColor = 0;
+                return;
+            }
             piezaActual = copiarPieza(piezasBase[id]);
             piezaColor = id + 1;
             pivoteX = COLUMNAS / 2;
@@ -216,12 +372,23 @@ public class PantallaJuego extends ScreenAdapter {
 
         private void actualizar(float delta) {
             if (!pausado && !gameOver) {
+                if (piezaActual == null) {
+                    generarPiezaNueva();
+                }
                 tiempoCaida += delta;
-                if (tiempoCaida >= intervaloCaida) {
+                if (piezaActual != null && tiempoCaida >= intervaloCaida) {
                     tiempoCaida = 0f;
                     if (!mover(0, -1)) {
                         fijarPieza();
                     }
+                }
+            }
+
+            if (mostrandoNivel) {
+                tiempoMostrarNivel -= delta;
+                if (tiempoMostrarNivel <= 0f) {
+                    tiempoMostrarNivel = 0f;
+                    mostrandoNivel = false;
                 }
             }
         }
@@ -238,6 +405,9 @@ public class PantallaJuego extends ScreenAdapter {
                 return;
             }
             if (pausado) {
+                return;
+            }
+            if (piezaActual == null) {
                 return;
             }
             if (Gdx.input.isKeyJustPressed(Input.Keys.LEFT)) {
@@ -274,6 +444,9 @@ public class PantallaJuego extends ScreenAdapter {
             if (pausado) {
                 return;
             }
+            if (piezaActual == null) {
+                return;
+            }
             if (Gdx.input.isKeyJustPressed(Input.Keys.A)) {
                 mover(-1, 0);
             }
@@ -297,6 +470,9 @@ public class PantallaJuego extends ScreenAdapter {
         }
 
         private boolean mover(int dx, int dy) {
+            if (piezaActual == null) {
+                return false;
+            }
             if (puedeMover(dx, dy, piezaActual)) {
                 pivoteX += dx;
                 pivoteY += dy;
@@ -322,6 +498,9 @@ public class PantallaJuego extends ScreenAdapter {
         }
 
         private void rotarDerecha() {
+            if (piezaActual == null) {
+                return;
+            }
             int[][] rotada = new int[piezaActual.length][2];
             for (int i = 0; i < piezaActual.length; i++) {
                 rotada[i][0] = -piezaActual[i][1];
@@ -334,6 +513,9 @@ public class PantallaJuego extends ScreenAdapter {
         }
 
         private void rotarIzquierda() {
+            if (piezaActual == null) {
+                return;
+            }
             int[][] rotada = new int[piezaActual.length][2];
             for (int i = 0; i < piezaActual.length; i++) {
                 rotada[i][0] = piezaActual[i][1];
@@ -345,24 +527,47 @@ public class PantallaJuego extends ScreenAdapter {
             }
         }
 
+        private void actualizarVelocidadCaida() {
+            velocidadCaida = Math.max(80, 800 - (nivel - 1) * 70);
+            intervaloCaida = velocidadCaida / 1000f;
+        }
+
         private void fijarPieza() {
+            if (piezaActual == null) {
+                return;
+            }
             for (int i = 0; i < piezaActual.length; i++) {
                 int x = pivoteX + piezaActual[i][0];
                 int y = pivoteY + piezaActual[i][1];
                 if (y >= 0 && y < FILAS && x >= 0 && x < COLUMNAS) {
                     tablero[y][x] = piezaColor;
+                    float px = xTablero + shakeOffsetX + x * TAM_BLOQUE + TAM_BLOQUE * 0.5f;
+                    float py = Y_TABLERO + y * TAM_BLOQUE + TAM_BLOQUE * 0.5f;
                 }
             }
 
             int lineas = limpiarLineas();
-            puntaje += lineas * 100;
-            lineasEliminadas += lineas;
-            intervaloCaida = Math.max(0.12f, 0.5f - (puntaje / 1500f));
+            if (lineas > 0) {
+                int lineasAntes = lineasTotales;
+                lineasTotales += lineas;
+                int nivelesSubir = (lineasTotales / 3) - (lineasAntes / 3);
+                if (nivelesSubir > 0) {
+                    nivel += nivelesSubir;
+                    actualizarVelocidadCaida();
+                    mostrarSubidaNivel(nivel);
+                }
+                puntaje += lineas * 100 * nivel;
+                enviarBasuraAlRival(lineas);
+            }
 
             generarPiezaNueva();
+            enviarAccionPiezaColocada();
         }
 
         private void hardDrop() {
+            if (piezaActual == null) {
+                return;
+            }
             while (puedeMover(0, -1, piezaActual)) {
                 pivoteY -= 1;
             }
@@ -384,6 +589,13 @@ public class PantallaJuego extends ScreenAdapter {
 
                 if (completa) {
                     lineasLimpiadas++;
+                    for (int x = 0; x < COLUMNAS; x++) {
+                        int celda = tablero[y][x];
+                        if (celda != 0) {
+                            float px = xTablero + shakeOffsetX + x * TAM_BLOQUE + TAM_BLOQUE * 0.5f;
+                            float py = Y_TABLERO + y * TAM_BLOQUE + TAM_BLOQUE * 0.5f;
+                        }
+                    }
 
                     for (int fila = y; fila < FILAS - 1; fila++) {
                         for (int x = 0; x < COLUMNAS; x++) {
@@ -403,26 +615,31 @@ public class PantallaJuego extends ScreenAdapter {
         }
 
         private void dibujar(ShapeRenderer figura) {
+            if (mostrandoNivel) {
+                float alpha = Math.min(1f, tiempoMostrarNivel / 0.3f) * 0.6f;
+                figura.setColor(1f, 1f, 1f, alpha);
+                figura.rect(0, 0, 960, 480);
+            }
             figura.setColor(0.15f, 0.15f, 0.2f, 1f);
-            figura.rect(xTablero - 4, Y_TABLERO - 4, COLUMNAS * TAM_BLOQUE + 8, FILAS * TAM_BLOQUE + 8);
+            figura.rect(xTablero + shakeOffsetX - 4, Y_TABLERO - 4, COLUMNAS * TAM_BLOQUE + 8, FILAS * TAM_BLOQUE + 8);
 
             for (int y = 0; y < FILAS; y++) {
                 for (int x = 0; x < COLUMNAS; x++) {
                     int celda = tablero[y][x];
                     if (celda != 0) {
                         figura.setColor(colorPieza(celda));
-                        figura.rect(xTablero + x * TAM_BLOQUE, Y_TABLERO + y * TAM_BLOQUE, TAM_BLOQUE - 1, TAM_BLOQUE - 1);
+                        figura.rect(xTablero + shakeOffsetX + x * TAM_BLOQUE, Y_TABLERO + y * TAM_BLOQUE, TAM_BLOQUE - 1, TAM_BLOQUE - 1);
                     }
                 }
             }
 
-            if (!gameOver) {
+            if (!gameOver && piezaActual != null) {
                 figura.setColor(colorPieza(piezaColor));
                 for (int i = 0; i < piezaActual.length; i++) {
                     int x = pivoteX + piezaActual[i][0];
                     int y = pivoteY + piezaActual[i][1];
                     if (y >= 0 && y < FILAS) {
-                        figura.rect(xTablero + x * TAM_BLOQUE, Y_TABLERO + y * TAM_BLOQUE, TAM_BLOQUE - 1, TAM_BLOQUE - 1);
+                        figura.rect(xTablero + shakeOffsetX + x * TAM_BLOQUE, Y_TABLERO + y * TAM_BLOQUE, TAM_BLOQUE - 1, TAM_BLOQUE - 1);
                     }
                 }
             }
@@ -431,20 +648,110 @@ public class PantallaJuego extends ScreenAdapter {
         private void dibujarUI(SpriteBatch batch, BitmapFont fuente) {
             int uiX = xTablero + COLUMNAS * TAM_BLOQUE + 10;
             int uiY = 430;
-            fuente.draw(batch, nombre, xTablero, 465);
-            fuente.draw(batch, "PUNTAJE: " + puntaje, uiX, uiY);
-            fuente.draw(batch, "LINEAS: " + lineasEliminadas, uiX, uiY - 30);
-            fuente.draw(batch, "ESC: MENU", uiX, uiY - 60);
-            fuente.draw(batch, (nombre.equals("P1") ? "P: PAUSA" : "O: PAUSA"), uiX, uiY - 90);
+            fuente.draw(batch, nombre, xTablero + shakeOffsetX, 465);
+            fuente.draw(batch, "NIVEL: " + nivel, uiX, uiY);
+            fuente.draw(batch, "LINEAS: " + lineasTotales, uiX, uiY - 30);
+            fuente.draw(batch, "PUNTAJE: " + puntaje, uiX, uiY - 60);
+            fuente.draw(batch, "ESC: MENU", uiX, uiY - 90);
+            fuente.draw(batch, (nombre.equals("P1") ? "P: PAUSA" : "O: PAUSA"), uiX, uiY - 120);
+
+            if (estaEnPeligro()) {
+                float avisoX = xTablero + shakeOffsetX;
+                float avisoY = Y_TABLERO + FILAS * TAM_BLOQUE + 18;
+                fuente.draw(batch, "EN PELIGRO", avisoX, avisoY);
+            }
 
             if (pausado) {
-                fuente.draw(batch, "PAUSADO", uiX, uiY - 120);
+                fuente.draw(batch, "PAUSADO", uiX, uiY - 150);
             }
 
             if (gameOver) {
-                fuente.draw(batch, "GAME OVER", uiX, uiY - 150);
-                fuente.draw(batch, "ENTER: REINICIAR", uiX, uiY - 180);
+                fuente.draw(batch, perdioPorBasura ? "KO" : "GAME OVER", uiX, uiY - 180);
+                fuente.draw(batch, "ENTER: REINICIAR", uiX, uiY - 210);
             }
+
+            if (mostrandoNivel) {
+                float prevX = fuente.getData().scaleX;
+                float prevY = fuente.getData().scaleY;
+                float t = 1f - Math.min(1f, tiempoMostrarNivel / 1f);
+                float escala = 3.2f + (2.2f - 3.2f) * t;
+                fuente.getData().setScale(escala);
+                String texto = "NIVEL " + nivelActual;
+                layoutNivel.setText(fuente, texto);
+                float x = (960f - layoutNivel.width) / 2f;
+                float y = (480f + layoutNivel.height) / 2f;
+                fuente.draw(batch, texto, x, y);
+                fuente.getData().setScale(prevX, prevY);
+            }
+
+            if (gameOver && perdioPorBasura) {
+                Color prev = batch.getColor();
+                batch.setColor(1f, 0.1f, 0.1f, 0.35f);
+                batch.draw(overlayKo, 0, 0, 960, 480);
+                batch.setColor(prev);
+
+                float prevX = fuente.getData().scaleX;
+                float prevY = fuente.getData().scaleY;
+                fuente.getData().setScale(3.0f);
+                String textoKo = "KO";
+                layoutNivel.setText(fuente, textoKo);
+                float x = (960f - layoutNivel.width) / 2f;
+                float y = (480f + layoutNivel.height) / 2f;
+                fuente.draw(batch, textoKo, x, y);
+                fuente.getData().setScale(prevX, prevY);
+            }
+        }
+
+        private void mostrarSubidaNivel(int nuevoNivel) {
+            nivelActual = nuevoNivel;
+            mostrandoNivel = true;
+            tiempoMostrarNivel = 1f;
+        }
+
+        private void enviarBasuraAlRival(int lineasLimpiadas) {
+            int basura = 0;
+            if (lineasLimpiadas == 2) {
+                basura = 1;
+            } else if (lineasLimpiadas == 3) {
+                basura = 2;
+            } else if (lineasLimpiadas >= 4) {
+                basura = 4;
+            }
+            if (basura <= 0) {
+                return;
+            }
+            TableroTetris rival = (this == jugador1) ? jugador2 : jugador1;
+            rival.recibirBasura(basura);
+        }
+
+        private void recibirBasura(int cantidad) {
+            if (cantidad > 0) {
+                perdioPorBasura = true;
+            }
+            for (int i = 0; i < cantidad; i++) {
+                if (hayBloquesEnFilaSuperior()) {
+                    gameOver = true;
+                    return;
+                }
+                for (int y = FILAS - 1; y > 0; y--) {
+                    for (int x = 0; x < COLUMNAS; x++) {
+                        tablero[y][x] = tablero[y - 1][x];
+                    }
+                }
+                int hueco = random.nextInt(COLUMNAS);
+                for (int x = 0; x < COLUMNAS; x++) {
+                    tablero[0][x] = (x == hueco) ? 0 : 7;
+                }
+            }
+        }
+
+        private boolean hayBloquesEnFilaSuperior() {
+            for (int x = 0; x < COLUMNAS; x++) {
+                if (tablero[FILAS - 1][x] != 0) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private int getPuntaje() {
@@ -452,11 +759,34 @@ public class PantallaJuego extends ScreenAdapter {
         }
 
         private int getLineasEliminadas() {
-            return lineasEliminadas;
+            return lineasTotales;
         }
 
         private boolean isGameOver() {
             return gameOver;
+        }
+
+        private boolean estaEnPeligro() {
+            return !gameOver && hayBloquesCercaDelTope();
+        }
+
+        private void setShakeOffsetX(float offset) {
+            this.shakeOffsetX = offset;
+        }
+
+        private boolean hayBloquesCercaDelTope() {
+            for (int x = 0; x < COLUMNAS; x++) {
+                if (tablero[FILAS - 1][x] != 0 || tablero[FILAS - 2][x] != 0 || tablero[FILAS - 3][x] != 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void intentarTomarPieza() {
+            if (piezaActual == null && !gameOver) {
+                generarPiezaNueva();
+            }
         }
     }
 

@@ -1,1 +1,4 @@
 libgdx.png
+menufondo.png
+tetris.mp3
+victoria.wav
