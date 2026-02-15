@@ -1,7 +1,9 @@
 package tetris;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import jugador.ControlJugador;
@@ -26,7 +28,14 @@ public class Tablero {
     private boolean gameOver = false;
 
     private int puntaje;
-    private int lineasEliminadas;
+    private int lineasTotales;
+    private int nivel;
+    private int velocidadCaida;
+
+    private boolean mostrandoNivel = false;
+    private float tiempoMostrarNivel = 0f;
+    private int nivelActual = 1;
+    private final GlyphLayout layoutNivel = new GlyphLayout();
 
     public Tablero(String nombre, int xTablero, GeneradorPiezas generador) {
         this.nombre = nombre;
@@ -41,11 +50,15 @@ public class Tablero {
             }
         }
         puntaje = 0;
-        lineasEliminadas = 0;
+        lineasTotales = 0;
+        nivel = 1;
+        actualizarVelocidadCaida();
         pausado = false;
         gameOver = false;
-        intervaloCaida = 0.5f;
         tiempoCaida = 0f;
+        mostrandoNivel = false;
+        tiempoMostrarNivel = 0f;
+        nivelActual = nivel;
         generarPiezaNueva();
     }
 
@@ -67,6 +80,14 @@ public class Tablero {
                 if (!mover(0, -1)) {
                     fijarPieza();
                 }
+            }
+        }
+
+        if (mostrandoNivel) {
+            tiempoMostrarNivel -= delta;
+            if (tiempoMostrarNivel <= 0f) {
+                tiempoMostrarNivel = 0f;
+                mostrandoNivel = false;
             }
         }
     }
@@ -173,6 +194,11 @@ public class Tablero {
         return rotada;
     }
 
+    private void actualizarVelocidadCaida() {
+        velocidadCaida = Math.max(80, 800 - (nivel - 1) * 70);
+        intervaloCaida = velocidadCaida / 1000f;
+    }
+
     private void fijarPieza() {
         int[][] forma = piezaActual.getBloques();
         for (int i = 0; i < forma.length; i++) {
@@ -184,9 +210,17 @@ public class Tablero {
         }
 
         int lineas = limpiarLineas();
-        puntaje += lineas * 100;
-        lineasEliminadas += lineas;
-        intervaloCaida = Math.max(0.12f, 0.5f - (puntaje / 1500f));
+        if (lineas > 0) {
+            int lineasAntes = lineasTotales;
+            lineasTotales += lineas;
+            int nivelesSubir = (lineasTotales / 3) - (lineasAntes / 3);
+            if (nivelesSubir > 0) {
+                nivel += nivelesSubir;
+                actualizarVelocidadCaida();
+                mostrarSubidaNivel(nivel);
+            }
+            puntaje += lineas * 100 * nivel;
+        }
 
         generarPiezaNueva();
     }
@@ -224,6 +258,12 @@ public class Tablero {
     }
 
     public void dibujar(ShapeRenderer figura) {
+        if (mostrandoNivel) {
+            float alpha = Math.min(1f, tiempoMostrarNivel / 0.3f) * 0.6f;
+            figura.setColor(1f, 1f, 1f, alpha);
+            figura.rect(0, 0, 960, 480);
+        }
+
         figura.setColor(0.15f, 0.15f, 0.2f, 1f);
         figura.rect(
             xTablero - 4,
@@ -269,19 +309,40 @@ public class Tablero {
         int uiX = xTablero + COLUMNAS * TAM_BLOQUE + 10;
         int uiY = 430;
         fuente.draw(batch, nombre, xTablero, 465);
-        fuente.draw(batch, "PUNTAJE: " + puntaje, uiX, uiY);
-        fuente.draw(batch, "LINEAS: " + lineasEliminadas, uiX, uiY - 30);
-        fuente.draw(batch, "ESC: MENU", uiX, uiY - 60);
-        fuente.draw(batch, (nombre.equals("P1") ? "P: PAUSA" : "O: PAUSA"), uiX, uiY - 90);
+        fuente.draw(batch, "NIVEL: " + nivel, uiX, uiY);
+        fuente.draw(batch, "LINEAS: " + lineasTotales, uiX, uiY - 30);
+        fuente.draw(batch, "PUNTAJE: " + puntaje, uiX, uiY - 60);
+        fuente.draw(batch, "ESC: MENU", uiX, uiY - 90);
+        fuente.draw(batch, (nombre.equals("P1") ? "P: PAUSA" : "O: PAUSA"), uiX, uiY - 120);
 
         if (pausado) {
-            fuente.draw(batch, "PAUSADO", uiX, uiY - 120);
+            fuente.draw(batch, "PAUSADO", uiX, uiY - 150);
         }
 
         if (gameOver) {
-            fuente.draw(batch, "GAME OVER", uiX, uiY - 150);
-            fuente.draw(batch, "ENTER: REINICIAR", uiX, uiY - 180);
+            fuente.draw(batch, "GAME OVER", uiX, uiY - 180);
+            fuente.draw(batch, "ENTER: REINICIAR", uiX, uiY - 210);
         }
+
+        if (mostrandoNivel) {
+            float prevX = fuente.getData().scaleX;
+            float prevY = fuente.getData().scaleY;
+            fuente.getData().setScale(2.6f);
+            String texto = "NIVEL " + nivelActual;
+            layoutNivel.setText(fuente, texto);
+            float ancho = Gdx.graphics.getWidth();
+            float alto = Gdx.graphics.getHeight();
+            float x = (ancho - layoutNivel.width) / 2f;
+            float y = (alto + layoutNivel.height) / 2f;
+            fuente.draw(batch, texto, x, y);
+            fuente.getData().setScale(prevX, prevY);
+        }
+    }
+
+    private void mostrarSubidaNivel(int nuevoNivel) {
+        nivelActual = nuevoNivel;
+        mostrandoNivel = true;
+        tiempoMostrarNivel = 1f;
     }
 
     public int getPuntaje() {
@@ -289,7 +350,7 @@ public class Tablero {
     }
 
     public int getLineasEliminadas() {
-        return lineasEliminadas;
+        return lineasTotales;
     }
 
     public boolean isGameOver() {
