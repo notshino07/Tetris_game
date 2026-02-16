@@ -22,19 +22,19 @@ public class HiloServidor extends Thread {
         try {
             socket = new DatagramSocket(serverPort);
         } catch (SocketException e) {
-            // throw new RuntimeException(e);
+//            throw new RuntimeException(e);
         }
     }
 
     @Override
     public void run() {
         do {
-            System.out.println("El servidor es un exito");
             DatagramPacket packet = new DatagramPacket(new byte[1024], 1024);
             try {
                 socket.receive(packet);
                 procesarMensaje(packet);
             } catch (IOException e) {
+
             }
         } while(!end);
     }
@@ -44,8 +44,9 @@ public class HiloServidor extends Thread {
         String[] parts = message.split(":");
         int index = findClientIndex(packet);
         System.out.println("Mensaje recibido " + message);
+
         if(parts[0].equals("Conectado")){
-            System.out.println("se conecto un usuario");
+        	
         }
     }
 
@@ -59,6 +60,7 @@ public class HiloServidor extends Thread {
                 clientIndex = i;
             }
             i++;
+
         }
         return clientIndex;
     }
