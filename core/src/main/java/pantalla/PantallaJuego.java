@@ -944,4 +944,14 @@ public class PantallaJuego extends ScreenAdapter implements ControladorJuego {
             }
         }
     }
+
+    @Override
+    public void conexion(int jugador) {
+        // No-op en esta pantalla alternativa.
+    }
+
+    @Override
+    public void desconectado(int jugador) {
+        // No-op en esta pantalla alternativa.
+    }
 }
