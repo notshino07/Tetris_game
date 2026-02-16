@@ -26,11 +26,13 @@ public class Tablero {
     private float intervaloCaida = 0.5f;
     private boolean pausado = false;
     private boolean gameOver = false;
+    private boolean perdioPorBasura = false;
 
     private int puntaje;
     private int lineasTotales;
     private int nivel;
     private int velocidadCaida;
+    private int lineasLimpiadasPendientes = 0;
 
     private boolean mostrandoNivel = false;
     private float tiempoMostrarNivel = 0f;
@@ -55,6 +57,7 @@ public class Tablero {
         actualizarVelocidadCaida();
         pausado = false;
         gameOver = false;
+        perdioPorBasura = false;
         tiempoCaida = 0f;
         mostrandoNivel = false;
         tiempoMostrarNivel = 0f;
@@ -210,6 +213,7 @@ public class Tablero {
         }
 
         int lineas = limpiarLineas();
+        lineasLimpiadasPendientes = lineas;
         if (lineas > 0) {
             int lineasAntes = lineasTotales;
             lineasTotales += lineas;
@@ -223,6 +227,55 @@ public class Tablero {
         }
 
         generarPiezaNueva();
+    }
+
+    public int consumirLineasLimpiadas() {
+        int valor = lineasLimpiadasPendientes;
+        lineasLimpiadasPendientes = 0;
+        return valor;
+    }
+
+    public void recibirBasura(int cantidad) {
+        if (cantidad <= 0 || gameOver) return;
+        perdioPorBasura = true;
+        for (int i = 0; i < cantidad; i++) {
+            if (hayBloquesEnFilaSuperior()) {
+                gameOver = true;
+                return;
+            }
+            for (int y = FILAS - 1; y > 0; y--) {
+                for (int x = 0; x < COLUMNAS; x++) {
+                    tablero[y][x] = tablero[y - 1][x];
+                }
+            }
+            int hueco = (int) (Math.random() * COLUMNAS);
+            for (int x = 0; x < COLUMNAS; x++) {
+                tablero[0][x] = (x == hueco) ? 0 : 7;
+            }
+        }
+    }
+
+    private boolean hayBloquesEnFilaSuperior() {
+        for (int x = 0; x < COLUMNAS; x++) {
+            if (tablero[FILAS - 1][x] != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean estaEnPeligro() {
+        if (gameOver) return false;
+        for (int x = 0; x < COLUMNAS; x++) {
+            if (tablero[FILAS - 1][x] != 0 || tablero[FILAS - 2][x] != 0 || tablero[FILAS - 3][x] != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isPerdioPorBasura() {
+        return perdioPorBasura;
     }
 
     private int limpiarLineas() {
@@ -258,6 +311,10 @@ public class Tablero {
     }
 
     public void dibujar(ShapeRenderer figura) {
+        dibujar(figura, 0f);
+    }
+
+    public void dibujar(ShapeRenderer figura, float offsetX) {
         if (mostrandoNivel) {
             float alpha = Math.min(1f, tiempoMostrarNivel / 0.3f) * 0.6f;
             figura.setColor(1f, 1f, 1f, alpha);
@@ -266,7 +323,7 @@ public class Tablero {
 
         figura.setColor(0.15f, 0.15f, 0.2f, 1f);
         figura.rect(
-            xTablero - 4,
+            xTablero + offsetX - 4,
             Y_TABLERO - 4,
             COLUMNAS * TAM_BLOQUE + 8,
             FILAS * TAM_BLOQUE + 8
@@ -278,7 +335,7 @@ public class Tablero {
                 if (celda != 0) {
                     figura.setColor(colorPieza(celda));
                     figura.rect(
-                        xTablero + x * TAM_BLOQUE,
+                        xTablero + offsetX + x * TAM_BLOQUE,
                         Y_TABLERO + y * TAM_BLOQUE,
                         TAM_BLOQUE - 1,
                         TAM_BLOQUE - 1
@@ -295,7 +352,7 @@ public class Tablero {
                 int y = pivoteY + forma[i][1];
                 if (y >= 0 && y < FILAS) {
                     figura.rect(
-                        xTablero + x * TAM_BLOQUE,
+                        xTablero + offsetX + x * TAM_BLOQUE,
                         Y_TABLERO + y * TAM_BLOQUE,
                         TAM_BLOQUE - 1,
                         TAM_BLOQUE - 1
@@ -306,14 +363,22 @@ public class Tablero {
     }
 
     public void dibujarUI(SpriteBatch batch, BitmapFont fuente) {
+        dibujarUI(batch, fuente, 0f);
+    }
+
+    public void dibujarUI(SpriteBatch batch, BitmapFont fuente, float offsetX) {
         int uiX = xTablero + COLUMNAS * TAM_BLOQUE + 10;
         int uiY = 430;
-        fuente.draw(batch, nombre, xTablero, 465);
+        fuente.draw(batch, nombre, xTablero + offsetX, 465);
         fuente.draw(batch, "NIVEL: " + nivel, uiX, uiY);
         fuente.draw(batch, "LINEAS: " + lineasTotales, uiX, uiY - 30);
         fuente.draw(batch, "PUNTAJE: " + puntaje, uiX, uiY - 60);
         fuente.draw(batch, "ESC: MENU", uiX, uiY - 90);
         fuente.draw(batch, (nombre.equals("P1") ? "P: PAUSA" : "O: PAUSA"), uiX, uiY - 120);
+
+        if (estaEnPeligro()) {
+            fuente.draw(batch, "EN PELIGRO", xTablero + offsetX, Y_TABLERO + FILAS * TAM_BLOQUE + 18);
+        }
 
         if (pausado) {
             fuente.draw(batch, "PAUSADO", uiX, uiY - 150);
@@ -355,6 +420,40 @@ public class Tablero {
 
     public boolean isGameOver() {
         return gameOver;
+    }
+
+    public String serializarTablero() {
+        int[][] snapshot = obtenerTableroConPieza();
+        StringBuilder builder = new StringBuilder(FILAS * (COLUMNAS + 1));
+        for (int y = FILAS - 1; y >= 0; y--) {
+            for (int x = 0; x < COLUMNAS; x++) {
+                builder.append(snapshot[y][x]);
+            }
+            if (y > 0) {
+                builder.append("|");
+            }
+        }
+        return builder.toString();
+    }
+
+    private int[][] obtenerTableroConPieza() {
+        int[][] copia = new int[FILAS][COLUMNAS];
+        for (int y = 0; y < FILAS; y++) {
+            for (int x = 0; x < COLUMNAS; x++) {
+                copia[y][x] = tablero[y][x];
+            }
+        }
+        if (!gameOver && piezaActual != null) {
+            int[][] forma = piezaActual.getBloques();
+            for (int i = 0; i < forma.length; i++) {
+                int x = pivoteX + forma[i][0];
+                int y = pivoteY + forma[i][1];
+                if (x >= 0 && x < COLUMNAS && y >= 0 && y < FILAS) {
+                    copia[y][x] = piezaActual.getColorId();
+                }
+            }
+        }
+        return copia;
     }
 
     private Color colorPieza(int id) {

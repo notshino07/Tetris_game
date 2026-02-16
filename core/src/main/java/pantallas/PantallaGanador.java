@@ -24,6 +24,7 @@ public class PantallaGanador extends ScreenAdapter {
 
     private final JuegoTetris juego;
     private final int ganador;
+    private final int jugadorLocal;
     private final int puntajeP1;
     private final int puntajeP2;
     private final int lineasP1;
@@ -40,11 +41,13 @@ public class PantallaGanador extends ScreenAdapter {
     private Actor[] focusOrder;
     private int focusIndex = 0;
     private Sound victoriaSound;
+    private Sound derrotaSound;
     private final GlyphLayout layout = new GlyphLayout();
 
-    public PantallaGanador(JuegoTetris juego, int ganador, int puntajeP1, int puntajeP2, int lineasP1, int lineasP2) {
+    public PantallaGanador(JuegoTetris juego, int ganador, int jugadorLocal, int puntajeP1, int puntajeP2, int lineasP1, int lineasP2) {
         this.juego = juego;
         this.ganador = ganador;
+        this.jugadorLocal = jugadorLocal;
         this.puntajeP1 = puntajeP1;
         this.puntajeP2 = puntajeP2;
         this.lineasP1 = lineasP1;
@@ -102,8 +105,13 @@ public class PantallaGanador extends ScreenAdapter {
         if (juego.getMusica() != null && juego.getMusica().isPlaying()) {
             juego.getMusica().stop();
         }
-        victoriaSound = juego.getRecursos().cargarSonido("victoria.wav");
-        victoriaSound.play(1f);
+        if (ganador == jugadorLocal) {
+            victoriaSound = juego.getRecursos().cargarSonido("victoria.wav");
+            victoriaSound.play(1f);
+        } else {
+            derrotaSound = juego.getRecursos().cargarSonido("lose.wav");
+            derrotaSound.play(1f);
+        }
     }
 
     @Override
@@ -112,7 +120,7 @@ public class PantallaGanador extends ScreenAdapter {
 
         batch.begin();
         batch.draw(overlay, 0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
-        String titulo = "GANADOR: JUGADOR " + ganador;
+        String titulo = (ganador == jugadorLocal) ? "GANASTE" : "PERDISTE";
         titleFont.draw(batch, titulo, centerX(titleFont, titulo), Gdx.graphics.getHeight() - 120);
 
         String p1 = "P1  PUNTAJE: " + puntajeP1 + "  LINEAS: " + lineasP1;
@@ -153,6 +161,9 @@ public class PantallaGanador extends ScreenAdapter {
         }
         if (victoriaSound != null) {
             victoriaSound.dispose();
+        }
+        if (derrotaSound != null) {
+            derrotaSound.dispose();
         }
     }
 

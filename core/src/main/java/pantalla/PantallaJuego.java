@@ -1045,4 +1045,49 @@ public class PantallaJuego extends ScreenAdapter implements ControladorJuego {
             }
         }
     }
+
+    @Override
+    public void conectar(int numeroJugador) {
+        // No-op en esta pantalla alternativa.
+    }
+
+    @Override
+    public void empezar() {
+        onStart();
+    }
+
+    @Override
+    public void actualizarTableroRemoto(int numeroJugador, String tablero, int puntaje, int lineas, boolean gameOver, boolean ko) {
+        // No-op en esta pantalla alternativa.
+    }
+
+    @Override
+    public void clienteDesconectado(int numeroJugador) {
+        volverAlMenu();
+    }
+
+    @Override
+    public void servidorLleno() {
+        volverAlMenu();
+    }
+
+    @Override
+    public void servidorCerrado() {
+        volverAlMenu();
+    }
+
+    @Override
+    public void volverAlMenu() {
+        juego.setScreen(new PantallaMenu(juego));
+    }
+
+    @Override
+    public void recibirBasura(int cantidad) {
+        // No-op en esta pantalla alternativa.
+    }
+
+    @Override
+    public void recibirBasuraDirigida(int objetivo, int cantidad) {
+        // No-op en esta pantalla alternativa.
+    }
 }
